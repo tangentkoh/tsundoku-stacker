@@ -64,6 +64,7 @@ export default function AddBook() {
                 fill
                 className="object-cover rounded"
                 sizes="48px"
+                unoptimized // ← これを追加！
               />
             </div>
             <div className="flex-1">

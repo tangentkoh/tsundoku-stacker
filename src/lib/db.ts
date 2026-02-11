@@ -1,7 +1,7 @@
 import { db } from "./firebase";
 import {
   collection,
-  addDoc,
+  setDoc,
   serverTimestamp,
   query,
   where,
@@ -14,15 +14,18 @@ import { updateDoc, doc, deleteDoc } from "firebase/firestore";
 // 本をFirestoreに保存する関数
 export const addBookToFirestore = async (userId: string, book: Book) => {
   try {
+    // addDoc (ランダムID) ではなく setDoc (指定ID) を使う
+    // book.id は Google Books の ID なので、それをドキュメント名にする
+    const bookRef = doc(db, "books", book.id);
+
     const bookData = {
       ...book,
-      userId, // 誰の本かを識別するためのID
-      addedAt: serverTimestamp(), // Firestore側のサーバー時間を使用
+      userId,
+      addedAt: serverTimestamp(),
     };
 
-    // "books" という名前のコレクション（フォルダのようなもの）に保存
-    const docRef = await addDoc(collection(db, "books"), bookData);
-    return docRef.id;
+    await setDoc(bookRef, bookData);
+    return book.id;
   } catch (error) {
     console.error("Error adding document: ", error);
     throw error;
@@ -43,8 +46,8 @@ export const subscribeBooks = (
   // onSnapshot を使うと、データが更新されるたびに callback が呼ばれる
   return onSnapshot(q, (snapshot) => {
     const books = snapshot.docs.map((doc) => ({
+      ...doc.data(), // 先にばらす
       id: doc.id,
-      ...doc.data(),
     })) as Book[];
     callback(books);
   });
