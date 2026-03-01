@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
@@ -8,16 +8,73 @@ import { auth } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import AddBook from "@/components/AddBookModal";
 import BookStack from "@/components/BookStack";
-import AnimatedStack from "@/components/AnimatedStack"; // 追加
-import Stats from "@/components/Stats"; // 追加
+import AnimatedStack from "@/components/AnimatedStack";
+import Stats from "@/components/Stats";
 import { subscribeBooks } from "@/lib/db";
 import { Book } from "@/types/book";
-import { LogOut, BookOpen, Layers } from "lucide-react"; // アイコンで装飾
+import { LogOut, BookOpen, Layers } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+type SortKey = "added_desc" | "added_asc" | "title_asc" | "title_desc";
+interface FirebaseTimestamp {
+  seconds: number;
+  nanoseconds: number;
+}
 
 export default function Home() {
   const { user, loading } = useAuth();
   const [books, setBooks] = useState<Book[]>([]);
   const router = useRouter();
+  const [sortBy, setSortBy] = useState<SortKey>("added_desc");
+
+  // 1. Hookのルールに従い、useMemoを早期リターンの前に移動
+  const sortedUnreadBooks = useMemo(() => {
+    const unread = books.filter((b) => b.status === "unread");
+
+    return [...unread].sort((a, b) => {
+      // 引数の型を具体的に指定して any を排除
+      const getTime = (
+        date: Date | FirebaseTimestamp | string | null | undefined,
+      ): number => {
+        if (!date) return 0;
+
+        // Firebase Timestamp型 (secondsプロパティがあるかチェック)
+        if (typeof date === "object" && "seconds" in date) {
+          return date.seconds * 1000;
+        }
+
+        // Dateオブジェクト
+        if (date instanceof Date) {
+          return date.getTime();
+        }
+
+        // 文字列（ISO 8601など）
+        return new Date(date).getTime();
+      };
+
+      const timeA = getTime(a.addedAt);
+      const timeB = getTime(b.addedAt);
+
+      switch (sortBy) {
+        case "added_desc":
+          return timeB - timeA;
+        case "added_asc":
+          return timeA - timeB;
+        case "title_asc":
+          return a.title.localeCompare(b.title, "ja");
+        case "title_desc":
+          return b.title.localeCompare(a.title, "ja");
+        default:
+          return 0;
+      }
+    });
+  }, [books, sortBy]);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -32,6 +89,7 @@ export default function Home() {
     }
   }, [user, loading, router]);
 
+  // 2. Hookの宣言が終わった後に早期リターンを置く
   if (loading)
     return (
       <div className="flex min-h-screen items-center justify-center bg-orange-50 text-orange-600 font-bold">
@@ -45,7 +103,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#f8f9fa] pb-20">
-      {/* ヘッダー */}
       <header className="sticky top-0 z-50 w-full border-b bg-white/80 backdrop-blur-md px-4 py-3">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
@@ -70,7 +127,6 @@ export default function Home() {
 
       <div className="max-w-6xl mx-auto p-4 md:p-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* 左カラム：管理エリア */}
           <div className="lg:col-span-4 space-y-6">
             <section className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
               <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">
@@ -87,7 +143,6 @@ export default function Home() {
             </section>
           </div>
 
-          {/* 右カラム：ビジュアルスタック */}
           <div className="lg:col-span-8 space-y-8">
             <section className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center">
               <div className="text-center mb-10">
@@ -103,21 +158,42 @@ export default function Home() {
                   冊
                 </p>
               </div>
-
-              {/* アニメーション付きスタック */}
               <AnimatedStack books={unreadBooks} />
             </section>
 
-            {/* 詳細リスト表示 */}
             <section>
-              <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                <BookOpen className="w-5 h-5 text-orange-500" />
-                スタックの詳細
-              </h2>
-              <BookStack books={unreadBooks} />
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 text-orange-500" />
+                  スタックの詳細
+                </h2>
+
+                <Select
+                  value={sortBy}
+                  onValueChange={(value: SortKey) => setSortBy(value)}
+                >
+                  <SelectTrigger className="w-[180px] bg-white">
+                    <SelectValue placeholder="並べ替え" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="added_desc">
+                      追加順 (新しい順)
+                    </SelectItem>
+                    <SelectItem value="added_asc">追加順 (古い順)</SelectItem>
+                    <SelectItem value="title_asc">
+                      タイトル (A-Z/あ-ん)
+                    </SelectItem>
+                    <SelectItem value="title_desc">
+                      タイトル (Z-A/ん-あ)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* ソート済みの配列を渡す */}
+              <BookStack books={sortedUnreadBooks} />
             </section>
 
-            {/* 読了セクション */}
             {readBooks.length > 0 && (
               <section className="pt-10 border-t border-gray-200">
                 <h2 className="text-lg font-bold text-gray-400 mb-4 flex items-center gap-2">
